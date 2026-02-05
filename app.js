@@ -106,8 +106,10 @@ function renderCards(items, startIndex) {
     };
 
     const formUrl =
-      "https://sina-glam.github.io/redirect/?x=" +
-      encodeURIComponent(item.description);
+      "https://sina-glam.github.io/redirect/?item=" +
+      encodeURIComponent(item.heading) +
+      "&amount=" +
+      encodeURIComponent(item.value);
     const card = document.createElement("article");
     card.className = "card";
     card.innerHTML = `
