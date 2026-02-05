@@ -1,11 +1,41 @@
 const STORAGE_KEY = "bandDonationItems";
+const SETTINGS_KEY = "bandDonationDisplaySettings";
+const LOGO_STORAGE_KEY = "bandDonationLogos";
+
+const DEFAULT_DISPLAY_SETTINGS = {
+  viewSpot1: "#dceeff",
+  viewSpot2: "#edf4ff",
+  viewBase: "#f5f1ea",
+  adminSpot1: "#dceeff",
+  adminSpot2: "#edf4ff",
+  adminBase: "#f5f1ea",
+  heroNote: "",
+};
+
 const fileInput = document.getElementById("fileInput");
 const saveButton = document.getElementById("saveButton");
 const clearButton = document.getElementById("clearButton");
 const statusEl = document.getElementById("status");
 const previewTable = document.getElementById("previewTable");
 
+const viewSpot1Input = document.getElementById("viewSpot1");
+const viewSpot2Input = document.getElementById("viewSpot2");
+const viewBaseInput = document.getElementById("viewBase");
+const adminSpot1Input = document.getElementById("adminSpot1");
+const adminSpot2Input = document.getElementById("adminSpot2");
+const adminBaseInput = document.getElementById("adminBase");
+const heroNoteInput = document.getElementById("heroNoteInput");
+const saveSettingsButton = document.getElementById("saveSettingsButton");
+const resetSettingsButton = document.getElementById("resetSettingsButton");
+const logoFileInput = document.getElementById("logoFileInput");
+const logoSideSelect = document.getElementById("logoSide");
+const logoPositionSelect = document.getElementById("logoPosition");
+const saveLogoButton = document.getElementById("saveLogoButton");
+const clearLogoButton = document.getElementById("clearLogoButton");
+const logoStatusEl = document.getElementById("logoStatus");
+
 let pendingItems = [];
+let pendingLogoDataUrl = "";
 
 const headerMap = {
   heading: ["heading", "title", "item", "need"],
@@ -13,6 +43,10 @@ const headerMap = {
   quantity: ["quantity", "qty", "count", "amount"],
   value: ["value", "dollar", "price", "cost", "amount $", "amount"],
 };
+
+function isHexColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(value || "");
+}
 
 function normalizeHeader(text) {
   return text.toLowerCase().trim();
@@ -76,6 +110,120 @@ function updatePreview(items) {
   });
 }
 
+function getSettingsFromInputs() {
+  return {
+    viewSpot1: isHexColor(viewSpot1Input.value) ? viewSpot1Input.value : DEFAULT_DISPLAY_SETTINGS.viewSpot1,
+    viewSpot2: isHexColor(viewSpot2Input.value) ? viewSpot2Input.value : DEFAULT_DISPLAY_SETTINGS.viewSpot2,
+    viewBase: isHexColor(viewBaseInput.value) ? viewBaseInput.value : DEFAULT_DISPLAY_SETTINGS.viewBase,
+    adminSpot1: isHexColor(adminSpot1Input.value) ? adminSpot1Input.value : DEFAULT_DISPLAY_SETTINGS.adminSpot1,
+    adminSpot2: isHexColor(adminSpot2Input.value) ? adminSpot2Input.value : DEFAULT_DISPLAY_SETTINGS.adminSpot2,
+    adminBase: isHexColor(adminBaseInput.value) ? adminBaseInput.value : DEFAULT_DISPLAY_SETTINGS.adminBase,
+    heroNote: (heroNoteInput.value || "").trim().slice(0, 160),
+  };
+}
+
+function applyDisplaySettings(settings) {
+  const root = document.documentElement;
+  root.style.setProperty("--view-bg-spot-1", settings.viewSpot1);
+  root.style.setProperty("--view-bg-spot-2", settings.viewSpot2);
+  root.style.setProperty("--view-bg-base", settings.viewBase);
+  root.style.setProperty("--admin-bg-spot-1", settings.adminSpot1);
+  root.style.setProperty("--admin-bg-spot-2", settings.adminSpot2);
+  root.style.setProperty("--admin-bg-base", settings.adminBase);
+}
+
+function loadDisplaySettings() {
+  const raw = localStorage.getItem(SETTINGS_KEY);
+  if (!raw) {
+    return { ...DEFAULT_DISPLAY_SETTINGS };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      viewSpot1: isHexColor(parsed.viewSpot1) ? parsed.viewSpot1 : DEFAULT_DISPLAY_SETTINGS.viewSpot1,
+      viewSpot2: isHexColor(parsed.viewSpot2) ? parsed.viewSpot2 : DEFAULT_DISPLAY_SETTINGS.viewSpot2,
+      viewBase: isHexColor(parsed.viewBase) ? parsed.viewBase : DEFAULT_DISPLAY_SETTINGS.viewBase,
+      adminSpot1: isHexColor(parsed.adminSpot1) ? parsed.adminSpot1 : DEFAULT_DISPLAY_SETTINGS.adminSpot1,
+      adminSpot2: isHexColor(parsed.adminSpot2) ? parsed.adminSpot2 : DEFAULT_DISPLAY_SETTINGS.adminSpot2,
+      adminBase: isHexColor(parsed.adminBase) ? parsed.adminBase : DEFAULT_DISPLAY_SETTINGS.adminBase,
+      heroNote: typeof parsed.heroNote === "string" ? parsed.heroNote.trim().slice(0, 160) : "",
+    };
+  } catch (err) {
+    console.warn("Failed to parse stored settings", err);
+    return { ...DEFAULT_DISPLAY_SETTINGS };
+  }
+}
+
+function fillSettingsInputs(settings) {
+  viewSpot1Input.value = settings.viewSpot1;
+  viewSpot2Input.value = settings.viewSpot2;
+  viewBaseInput.value = settings.viewBase;
+  adminSpot1Input.value = settings.adminSpot1;
+  adminSpot2Input.value = settings.adminSpot2;
+  adminBaseInput.value = settings.adminBase;
+  heroNoteInput.value = settings.heroNote;
+}
+
+function emptyLogoConfig() {
+  return { left: [null, null, null, null, null], right: [null, null, null, null, null] };
+}
+
+function isValidLogoData(value) {
+  return typeof value === "string" && value.startsWith("data:image/");
+}
+
+function loadLogoConfig() {
+  const empty = emptyLogoConfig();
+  const raw = localStorage.getItem(LOGO_STORAGE_KEY);
+  if (!raw) {
+    return empty;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    ["left", "right"].forEach((side) => {
+      const source = Array.isArray(parsed?.[side]) ? parsed[side] : [];
+      empty[side] = empty[side].map((_, index) => (isValidLogoData(source[index]) ? source[index] : null));
+    });
+    return empty;
+  } catch (err) {
+    console.warn("Failed to parse stored logos", err);
+    return empty;
+  }
+}
+
+function saveLogoConfig(config) {
+  localStorage.setItem(LOGO_STORAGE_KEY, JSON.stringify(config));
+}
+
+function selectedLogoSlot() {
+  const side = logoSideSelect.value === "right" ? "right" : "left";
+  const position = Number.parseInt(logoPositionSelect.value, 10);
+  const index = Number.isInteger(position) ? Math.min(5, Math.max(1, position)) - 1 : 0;
+  return { side, index, position: index + 1 };
+}
+
+function refreshLogoStatus() {
+  const config = loadLogoConfig();
+  const slot = selectedLogoSlot();
+  const hasLogo = Boolean(config[slot.side][slot.index]);
+  if (hasLogo) {
+    logoStatusEl.textContent = `${slot.side === "left" ? "Left" : "Right"} slot ${slot.position} has a saved logo.`;
+  } else {
+    logoStatusEl.textContent = `${slot.side === "left" ? "Left" : "Right"} slot ${slot.position} is using the LOGO placeholder.`;
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read image file."));
+    reader.readAsDataURL(file);
+  });
+}
+
 fileInput.addEventListener("change", async (event) => {
   const file = event.target.files[0];
   if (!file) return;
@@ -120,3 +268,79 @@ clearButton.addEventListener("click", () => {
   statusEl.textContent = "Saved data cleared. The view page will show defaults.";
   fileInput.value = "";
 });
+
+saveSettingsButton.addEventListener("click", () => {
+  const settings = getSettingsFromInputs();
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  applyDisplaySettings(settings);
+  statusEl.textContent = "Display settings saved.";
+});
+
+resetSettingsButton.addEventListener("click", () => {
+  localStorage.removeItem(SETTINGS_KEY);
+  fillSettingsInputs(DEFAULT_DISPLAY_SETTINGS);
+  applyDisplaySettings(DEFAULT_DISPLAY_SETTINGS);
+  statusEl.textContent = "Display settings reset to defaults.";
+});
+
+[viewSpot1Input, viewSpot2Input, viewBaseInput, adminSpot1Input, adminSpot2Input, adminBaseInput].forEach((input) => {
+  input.addEventListener("input", () => {
+    applyDisplaySettings(getSettingsFromInputs());
+  });
+});
+
+logoFileInput.addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) {
+    pendingLogoDataUrl = "";
+    return;
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    if (!isValidLogoData(dataUrl)) {
+      pendingLogoDataUrl = "";
+      logoStatusEl.textContent = "Invalid image format. Please choose another file.";
+      return;
+    }
+    pendingLogoDataUrl = dataUrl;
+    logoStatusEl.textContent = `Logo loaded: ${file.name}. Choose side/position and click Save Logo to Slot.`;
+  } catch (err) {
+    pendingLogoDataUrl = "";
+    logoStatusEl.textContent = "Could not read logo file. Try another image.";
+  }
+});
+
+saveLogoButton.addEventListener("click", () => {
+  if (!pendingLogoDataUrl) {
+    logoStatusEl.textContent = "Choose a logo image before saving.";
+    return;
+  }
+
+  const config = loadLogoConfig();
+  const slot = selectedLogoSlot();
+  config[slot.side][slot.index] = pendingLogoDataUrl;
+  saveLogoConfig(config);
+  pendingLogoDataUrl = "";
+  logoFileInput.value = "";
+  logoStatusEl.textContent = `Saved logo to ${slot.side} slot ${slot.position}.`;
+});
+
+clearLogoButton.addEventListener("click", () => {
+  const config = loadLogoConfig();
+  const slot = selectedLogoSlot();
+  config[slot.side][slot.index] = null;
+  saveLogoConfig(config);
+  pendingLogoDataUrl = "";
+  logoFileInput.value = "";
+  logoStatusEl.textContent = `Cleared logo from ${slot.side} slot ${slot.position}.`;
+});
+
+[logoSideSelect, logoPositionSelect].forEach((input) => {
+  input.addEventListener("change", refreshLogoStatus);
+});
+
+const savedSettings = loadDisplaySettings();
+fillSettingsInputs(savedSettings);
+applyDisplaySettings(savedSettings);
+refreshLogoStatus();
