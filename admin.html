@@ -21,6 +21,63 @@
       </header>
 
       <section class="panel">
+        <h2>Display Settings</h2>
+        <div class="settings-grid">
+          <div class="settings-group">
+            <h3>Front Page Background</h3>
+            <label>Spot Color 1 <input type="color" id="viewSpot1" /></label>
+            <label>Spot Color 2 <input type="color" id="viewSpot2" /></label>
+            <label>Base Color <input type="color" id="viewBase" /></label>
+          </div>
+          <div class="settings-group">
+            <h3>Admin Background</h3>
+            <label>Spot Color 1 <input type="color" id="adminSpot1" /></label>
+            <label>Spot Color 2 <input type="color" id="adminSpot2" /></label>
+            <label>Base Color <input type="color" id="adminBase" /></label>
+          </div>
+        </div>
+        <label class="settings-text" for="heroNoteInput">
+          Front Page Text Under "University High School Irvine Band"
+          <input
+            type="text"
+            id="heroNoteInput"
+            maxlength="160"
+            placeholder="Enter optional text"
+          />
+        </label>
+        <div class="file-row">
+          <button id="saveSettingsButton">Save Display Settings</button>
+          <button id="resetSettingsButton" class="secondary">Reset Display Settings</button>
+        </div>
+        <div class="logo-settings">
+          <h3>Display Logos</h3>
+          <div class="file-row">
+            <input type="file" id="logoFileInput" accept="image/*" />
+            <label>
+              Side
+              <select id="logoSide">
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+            <label>
+              Position
+              <select id="logoPosition">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button id="saveLogoButton">Save Logo to Slot</button>
+            <button id="clearLogoButton" class="secondary">Clear Selected Slot</button>
+          </div>
+          <div class="status" id="logoStatus">No logo selected.</div>
+        </div>
+      </section>
+
+      <section class="panel">
         <div class="file-row">
           <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
           <button id="saveButton">Save to Display</button>
