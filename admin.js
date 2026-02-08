@@ -1,6 +1,16 @@
+import { db } from "./firebase-config.js";
+import {
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
 const STORAGE_KEY = "bandDonationItems";
 const SETTINGS_KEY = "bandDonationDisplaySettings";
 const LOGO_STORAGE_KEY = "bandDonationLogos";
+const SCAN_SUMMARY_COLLECTION = "scan_summary";
+const SCAN_SUMMARY_DOC = "global";
 
 const DEFAULT_DISPLAY_SETTINGS = {
   viewSpot1: "#dceeff",
@@ -33,6 +43,10 @@ const logoPositionSelect = document.getElementById("logoPosition");
 const saveLogoButton = document.getElementById("saveLogoButton");
 const clearLogoButton = document.getElementById("clearLogoButton");
 const logoStatusEl = document.getElementById("logoStatus");
+const scanCountValueEl = document.getElementById("scanCountValue");
+const scanStatusEl = document.getElementById("scanStatus");
+const refreshScanButton = document.getElementById("refreshScanButton");
+const resetScanButton = document.getElementById("resetScanButton");
 
 let pendingItems = [];
 let pendingLogoDataUrl = "";
@@ -224,6 +238,47 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function scanSummaryRef() {
+  return doc(db, SCAN_SUMMARY_COLLECTION, SCAN_SUMMARY_DOC);
+}
+
+async function loadScanCount() {
+  try {
+    const snapshot = await getDoc(scanSummaryRef());
+    if (!snapshot.exists()) {
+      scanCountValueEl.textContent = "0";
+      scanStatusEl.textContent = "Counter document not found. It will be created when first scan/reset happens.";
+      return;
+    }
+
+    const data = snapshot.data();
+    const totalScans = Number.isFinite(data.totalScans) ? data.totalScans : 0;
+    scanCountValueEl.textContent = String(totalScans);
+    scanStatusEl.textContent = "Counter loaded.";
+  } catch (err) {
+    console.error("Failed to load scan counter", err);
+    scanStatusEl.textContent = "Failed to load scan counter. Check Firestore rules/config.";
+  }
+}
+
+async function resetScanCount() {
+  try {
+    await setDoc(
+      scanSummaryRef(),
+      {
+        totalScans: 0,
+        lastScanAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    scanCountValueEl.textContent = "0";
+    scanStatusEl.textContent = "Scan counter reset to 0.";
+  } catch (err) {
+    console.error("Failed to reset scan counter", err);
+    scanStatusEl.textContent = "Failed to reset scan counter. Check Firestore rules/config.";
+  }
+}
+
 fileInput.addEventListener("change", async (event) => {
   const file = event.target.files[0];
   if (!file) return;
@@ -340,7 +395,16 @@ clearLogoButton.addEventListener("click", () => {
   input.addEventListener("change", refreshLogoStatus);
 });
 
+refreshScanButton.addEventListener("click", () => {
+  loadScanCount();
+});
+
+resetScanButton.addEventListener("click", () => {
+  resetScanCount();
+});
+
 const savedSettings = loadDisplaySettings();
 fillSettingsInputs(savedSettings);
 applyDisplaySettings(savedSettings);
 refreshLogoStatus();
+loadScanCount();

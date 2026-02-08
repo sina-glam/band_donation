@@ -75,6 +75,15 @@
           </div>
           <div class="status" id="logoStatus">No logo selected.</div>
         </div>
+        <div class="logo-settings">
+          <h3>QR Scan Counter</h3>
+          <div class="file-row">
+            <div class="counter-pill">Total scans: <strong id="scanCountValue">-</strong></div>
+            <button id="refreshScanButton" class="secondary">Refresh Count</button>
+            <button id="resetScanButton" class="secondary">Reset Scan Counter</button>
+          </div>
+          <div class="status" id="scanStatus">Counter not loaded yet.</div>
+        </div>
       </section>
 
       <section class="panel">
@@ -89,6 +98,6 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="admin.js"></script>
+    <script type="module" src="admin.js"></script>
   </body>
 </html>

@@ -332,6 +332,14 @@ h1 {
   background: #fff;
 }
 
+.counter-pill {
+  padding: 10px 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: #f6f9ff;
+  font-size: 14px;
+}
+
 .file-row {
   display: flex;
   gap: 16px;
