@@ -45,6 +45,25 @@
             placeholder="Enter optional text"
           />
         </label>
+        <div class="preset-settings">
+          <h3>Saved Display Setups</h3>
+          <div class="file-row">
+            <input
+              type="text"
+              id="setupNameInput"
+              maxlength="40"
+              placeholder="Setup name (e.g., Winter Concert)"
+            />
+            <button id="saveSetupButton">Save Setup to Firebase</button>
+          </div>
+          <div class="file-row">
+            <select id="setupSelect">
+              <option value="">Select saved setup</option>
+            </select>
+            <button id="loadSetupButton" class="secondary">Load Selected Setup</button>
+          </div>
+          <div class="status" id="setupStatus">No saved setup selected.</div>
+        </div>
         <div class="file-row">
           <button id="saveSettingsButton">Save Display Settings</button>
           <button id="resetSettingsButton" class="secondary">Reset Display Settings</button>
@@ -72,6 +91,7 @@
             </label>
             <button id="saveLogoButton">Save Logo to Slot</button>
             <button id="clearLogoButton" class="secondary">Clear Selected Slot</button>
+            <button id="clearAllLogosButton" class="secondary">Clear All Logos</button>
           </div>
           <div class="status" id="logoStatus">No logo selected.</div>
         </div>
