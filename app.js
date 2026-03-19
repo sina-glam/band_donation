@@ -1,6 +1,7 @@
 const STORAGE_KEY = "bandDonationItems";
 const SETTINGS_KEY = "bandDonationDisplaySettings";
 const LOGO_STORAGE_KEY = "bandDonationLogos";
+const ITEM_LOOKUP_STORAGE_KEY = STORAGE_KEY;
 const QR_SIZE = 136;
 
 const DEFAULT_DISPLAY_SETTINGS = {
@@ -11,6 +12,7 @@ const DEFAULT_DISPLAY_SETTINGS = {
   adminSpot2: "#edf4ff",
   adminBase: "#f5f1ea",
   heroNote: "",
+  showEmptyLogoPlaceholders: true,
 };
 
 function isHexColor(value) {
@@ -33,6 +35,10 @@ function loadDisplaySettings() {
       adminSpot2: isHexColor(parsed.adminSpot2) ? parsed.adminSpot2 : DEFAULT_DISPLAY_SETTINGS.adminSpot2,
       adminBase: isHexColor(parsed.adminBase) ? parsed.adminBase : DEFAULT_DISPLAY_SETTINGS.adminBase,
       heroNote: typeof parsed.heroNote === "string" ? parsed.heroNote.trim().slice(0, 160) : "",
+      showEmptyLogoPlaceholders:
+        typeof parsed.showEmptyLogoPlaceholders === "boolean"
+          ? parsed.showEmptyLogoPlaceholders
+          : DEFAULT_DISPLAY_SETTINGS.showEmptyLogoPlaceholders,
     };
   } catch (err) {
     console.warn("Failed to parse display settings", err);
@@ -87,12 +93,27 @@ function loadLogoConfig() {
   }
 }
 
-function renderLogoRail(containerId, logos) {
+function updateLogoLayout(leftVisible, rightVisible) {
+  const contentRow = document.querySelector(".content-row");
+  if (!contentRow) return;
+
+  if (leftVisible && rightVisible) {
+    contentRow.style.gridTemplateColumns = "110px minmax(0, 1fr) 110px";
+  } else if (leftVisible || rightVisible) {
+    contentRow.style.gridTemplateColumns = "110px minmax(0, 1fr)";
+  } else {
+    contentRow.style.gridTemplateColumns = "minmax(0, 1fr)";
+  }
+}
+
+function renderLogoRail(containerId, logos, showEmptyLogoPlaceholders) {
   const rail = document.getElementById(containerId);
-  if (!rail) return;
+  if (!rail) return false;
 
   rail.innerHTML = "";
-  logos.forEach((logoSrc) => {
+  const visibleLogos = showEmptyLogoPlaceholders ? logos : logos.filter(Boolean);
+
+  visibleLogos.forEach((logoSrc) => {
     const slot = document.createElement("div");
     slot.className = "logo-slot";
     if (logoSrc) {
@@ -105,12 +126,18 @@ function renderLogoRail(containerId, logos) {
     }
     rail.appendChild(slot);
   });
+
+  const hasVisibleSlots = visibleLogos.length > 0;
+  rail.style.display = hasVisibleSlots ? "grid" : "none";
+  return hasVisibleSlots;
 }
 
 function renderLogos() {
   const logos = loadLogoConfig();
-  renderLogoRail("leftLogoRail", logos.left);
-  renderLogoRail("rightLogoRail", logos.right);
+  const settings = loadDisplaySettings();
+  const leftVisible = renderLogoRail("leftLogoRail", logos.left, settings.showEmptyLogoPlaceholders);
+  const rightVisible = renderLogoRail("rightLogoRail", logos.right, settings.showEmptyLogoPlaceholders);
+  updateLogoLayout(leftVisible, rightVisible);
 }
 
 function makeQrElement(text) {
@@ -127,59 +154,72 @@ function makeQrElement(text) {
   return holder;
 }
 
+function getRedirectBaseUrl() {
+  return "https://sina-glam.github.io/redirect/";
+}
+
 const ROTATE_SECONDS = 8;
 const CARDS_PER_VIEW = 6;
 
 const defaultItems = [
   {
+    shortId: "nms",
     heading: "New Music Stands",
     description: "Sturdy stands for marching and concert rehearsals.",
     quantity: "12",
     value: "$45",
   },
   {
+    shortId: "ph",
     heading: "Percussion Heads",
     description: "Replace worn drum heads before competition season.",
     quantity: "8",
     value: "$35",
   },
   {
+    shortId: "ca",
     heading: "Concert Attire",
     description: "Formal wear so every student looks stage-ready.",
     quantity: "20",
     value: "$60",
   },
   {
+    shortId: "tf",
     heading: "Travel Fund",
     description: "Help cover buses to festivals and showcases.",
     quantity: "6",
     value: "$250",
   },
   {
+    shortId: "ir",
     heading: "Instrument Repair",
     description: "Quick fixes for valves, reeds, and pads.",
     quantity: "15",
     value: "$40",
   },
   {
+    shortId: "nsm",
     heading: "New Sheet Music",
     description: "Fresh arrangements for fall and winter concerts.",
     quantity: "10",
     value: "$75",
   },
   {
+    shortId: "bcm",
     heading: "Band Camp Meals",
     description: "Fuel students during summer rehearsals.",
     quantity: "30",
     value: "$12",
   },
   {
+    shortId: "uc",
     heading: "Uniform Cleaning",
     description: "Keep uniforms sharp all season long.",
     quantity: "18",
     value: "$25",
   },
   {
+    shortId: "ss",
     heading: "Soloist Scholarships",
     description: "Support auditions, lessons, and leadership roles.",
     quantity: "4",
@@ -187,22 +227,60 @@ const defaultItems = [
   },
 ];
 
+function createShortItemId(heading, index, usedIds) {
+  const base = (heading || "item")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 5) || "item";
+  let candidate = base;
+  let suffix = 0;
+
+  while (!candidate || usedIds.has(candidate)) {
+    suffix += 1;
+    candidate = (base + suffix.toString(36)).slice(0, 7);
+  }
+
+  usedIds.add(candidate);
+  return candidate || `item${index.toString(36)}`;
+}
+
+function normalizeItems(items) {
+  const usedIds = new Set();
+
+  return items.map((item, index) => {
+    const existingId =
+      typeof item.shortId === "string" && /^[a-z0-9_-]{1,12}$/i.test(item.shortId.trim())
+        ? item.shortId.trim().toLowerCase()
+        : "";
+    const shortId = existingId && !usedIds.has(existingId) ? existingId : createShortItemId(item.heading, index, usedIds);
+    usedIds.add(shortId);
+
+    return {
+      shortId,
+      heading: String(item.heading || "").trim(),
+      description: String(item.description || "").trim(),
+      quantity: String(item.quantity || "").trim(),
+      value: String(item.value || "").trim(),
+    };
+  });
+}
+
 function loadItems() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
-    return defaultItems;
+    return normalizeItems(defaultItems);
   }
 
   try {
     const data = JSON.parse(raw);
     if (Array.isArray(data) && data.length) {
-      return data;
+      return normalizeItems(data);
     }
   } catch (err) {
     console.warn("Failed to parse stored items", err);
   }
 
-  return defaultItems;
+  return normalizeItems(defaultItems);
 }
 
 function renderCards(items, startIndex) {
@@ -217,11 +295,7 @@ function renderCards(items, startIndex) {
       value: "-",
     };
 
-    const formUrl =
-      "https://sina-glam.github.io/redirect/?item=" +
-      encodeURIComponent(item.heading) +
-      "&amount=" +
-      encodeURIComponent(item.value);
+    const formUrl = getRedirectBaseUrl() + "?i=" + encodeURIComponent(item.shortId);
     const card = document.createElement("article");
     card.className = "card";
     card.innerHTML = `

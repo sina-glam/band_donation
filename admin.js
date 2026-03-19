@@ -1,24 +1,10 @@
-import { db } from "./firebase-config.js";
-import {
-  addDoc,
-  collection,
-  doc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-  deleteDoc,
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-
 const STORAGE_KEY = "bandDonationItems";
 const SETTINGS_KEY = "bandDonationDisplaySettings";
 const LOGO_STORAGE_KEY = "bandDonationLogos";
 const SCAN_SUMMARY_COLLECTION = "scan_summary";
 const SCAN_SUMMARY_DOC = "global";
 const DISPLAY_SETUPS_COLLECTION = "display_setups";
+const DONATION_ITEMS_COLLECTION = "donation_items";
 const MAX_DISPLAY_SETUPS = 8;
 
 const DEFAULT_DISPLAY_SETTINGS = {
@@ -29,6 +15,7 @@ const DEFAULT_DISPLAY_SETTINGS = {
   adminSpot2: "#edf4ff",
   adminBase: "#f5f1ea",
   heroNote: "",
+  showEmptyLogoPlaceholders: true,
 };
 
 const fileInput = document.getElementById("fileInput");
@@ -52,7 +39,9 @@ const logoPositionSelect = document.getElementById("logoPosition");
 const saveLogoButton = document.getElementById("saveLogoButton");
 const clearLogoButton = document.getElementById("clearLogoButton");
 const clearAllLogosButton = document.getElementById("clearAllLogosButton");
+const toggleEmptyLogosButton = document.getElementById("toggleEmptyLogosButton");
 const logoStatusEl = document.getElementById("logoStatus");
+const emptyLogoStatusEl = document.getElementById("emptyLogoStatus");
 const scanCountValueEl = document.getElementById("scanCountValue");
 const scanStatusEl = document.getElementById("scanStatus");
 const refreshScanButton = document.getElementById("refreshScanButton");
@@ -66,6 +55,7 @@ const setupStatusEl = document.getElementById("setupStatus");
 let pendingItems = [];
 let pendingLogoDataUrl = "";
 let setupList = [];
+let firebaseDepsPromise = null;
 
 const headerMap = {
   heading: ["heading", "title", "item", "need"],
@@ -73,6 +63,30 @@ const headerMap = {
   quantity: ["quantity", "qty", "count", "amount"],
   value: ["value", "dollar", "price", "cost", "amount $", "amount"],
 };
+
+async function getFirebaseDeps() {
+  if (!firebaseDepsPromise) {
+    firebaseDepsPromise = Promise.all([
+      import("./firebase-config.js"),
+      import("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"),
+    ]).then(([configModule, firestoreModule]) => ({
+      db: configModule.db,
+      addDoc: firestoreModule.addDoc,
+      collection: firestoreModule.collection,
+      deleteDoc: firestoreModule.deleteDoc,
+      doc: firestoreModule.doc,
+      getDoc: firestoreModule.getDoc,
+      getDocs: firestoreModule.getDocs,
+      limit: firestoreModule.limit,
+      orderBy: firestoreModule.orderBy,
+      query: firestoreModule.query,
+      serverTimestamp: firestoreModule.serverTimestamp,
+      setDoc: firestoreModule.setDoc,
+    }));
+  }
+
+  return firebaseDepsPromise;
+}
 
 function isHexColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value || "");
@@ -101,6 +115,44 @@ function extractRows(data) {
   const headers = data[0] || [];
   const rows = data.slice(1).filter((row) => row.some((cell) => cell !== ""));
   return rows.map((row) => mapRow(row, headers));
+}
+
+function createShortItemId(heading, index, usedIds) {
+  const base = (heading || "item")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 5) || "item";
+  let candidate = base;
+  let suffix = 0;
+
+  while (!candidate || usedIds.has(candidate)) {
+    suffix += 1;
+    candidate = (base + suffix.toString(36)).slice(0, 7);
+  }
+
+  usedIds.add(candidate);
+  return candidate || `item${index.toString(36)}`;
+}
+
+function normalizeItems(items) {
+  const usedIds = new Set();
+
+  return items.map((item, index) => {
+    const existingId =
+      typeof item.shortId === "string" && /^[a-z0-9_-]{1,12}$/i.test(item.shortId.trim())
+        ? item.shortId.trim().toLowerCase()
+        : "";
+    const shortId = existingId && !usedIds.has(existingId) ? existingId : createShortItemId(item.heading, index, usedIds);
+    usedIds.add(shortId);
+
+    return {
+      shortId,
+      heading: String(item.heading || "").trim(),
+      description: String(item.description || "").trim(),
+      quantity: String(item.quantity || "").trim(),
+      value: String(item.value || "").trim(),
+    };
+  });
 }
 
 function parseCsv(text) {
@@ -141,6 +193,7 @@ function updatePreview(items) {
 }
 
 function getSettingsFromInputs() {
+  const currentSettings = loadDisplaySettings();
   return {
     viewSpot1: isHexColor(viewSpot1Input.value) ? viewSpot1Input.value : DEFAULT_DISPLAY_SETTINGS.viewSpot1,
     viewSpot2: isHexColor(viewSpot2Input.value) ? viewSpot2Input.value : DEFAULT_DISPLAY_SETTINGS.viewSpot2,
@@ -149,6 +202,10 @@ function getSettingsFromInputs() {
     adminSpot2: isHexColor(adminSpot2Input.value) ? adminSpot2Input.value : DEFAULT_DISPLAY_SETTINGS.adminSpot2,
     adminBase: isHexColor(adminBaseInput.value) ? adminBaseInput.value : DEFAULT_DISPLAY_SETTINGS.adminBase,
     heroNote: (heroNoteInput.value || "").trim().slice(0, 160),
+    showEmptyLogoPlaceholders:
+      typeof currentSettings.showEmptyLogoPlaceholders === "boolean"
+        ? currentSettings.showEmptyLogoPlaceholders
+        : DEFAULT_DISPLAY_SETTINGS.showEmptyLogoPlaceholders,
   };
 }
 
@@ -178,6 +235,10 @@ function loadDisplaySettings() {
       adminSpot2: isHexColor(parsed.adminSpot2) ? parsed.adminSpot2 : DEFAULT_DISPLAY_SETTINGS.adminSpot2,
       adminBase: isHexColor(parsed.adminBase) ? parsed.adminBase : DEFAULT_DISPLAY_SETTINGS.adminBase,
       heroNote: typeof parsed.heroNote === "string" ? parsed.heroNote.trim().slice(0, 160) : "",
+      showEmptyLogoPlaceholders:
+        typeof parsed.showEmptyLogoPlaceholders === "boolean"
+          ? parsed.showEmptyLogoPlaceholders
+          : DEFAULT_DISPLAY_SETTINGS.showEmptyLogoPlaceholders,
     };
   } catch (err) {
     console.warn("Failed to parse stored settings", err);
@@ -193,6 +254,30 @@ function fillSettingsInputs(settings) {
   adminSpot2Input.value = settings.adminSpot2;
   adminBaseInput.value = settings.adminBase;
   heroNoteInput.value = settings.heroNote;
+}
+
+function refreshEmptyLogoToggle(settings) {
+  const showEmptyLogoPlaceholders =
+    typeof settings?.showEmptyLogoPlaceholders === "boolean"
+      ? settings.showEmptyLogoPlaceholders
+      : DEFAULT_DISPLAY_SETTINGS.showEmptyLogoPlaceholders;
+  toggleEmptyLogosButton.textContent = showEmptyLogoPlaceholders
+    ? "Hide Empty Placeholders"
+    : "Show Empty Placeholders";
+  emptyLogoStatusEl.textContent = showEmptyLogoPlaceholders
+    ? "Empty logo placeholders are currently shown."
+    : "Empty logo placeholders are currently hidden on the display page.";
+}
+
+function toggleEmptyLogoPlaceholders() {
+  const settings = loadDisplaySettings();
+  const nextSettings = {
+    ...settings,
+    showEmptyLogoPlaceholders: !settings.showEmptyLogoPlaceholders,
+  };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(nextSettings));
+  applyDisplaySettings(nextSettings);
+  refreshEmptyLogoToggle(nextSettings);
 }
 
 function emptyLogoConfig() {
@@ -294,6 +379,7 @@ function applySetupToInputs(setup) {
 
 async function loadSavedSetups() {
   try {
+    const { db, collection, getDocs, limit, orderBy, query } = await getFirebaseDeps();
     const setupsQuery = query(
       collection(db, DISPLAY_SETUPS_COLLECTION),
       orderBy("createdAtMs", "desc"),
@@ -316,6 +402,7 @@ async function loadSavedSetups() {
 }
 
 async function pruneDisplaySetups() {
+  const { db, collection, deleteDoc, doc, getDocs, limit, orderBy, query } = await getFirebaseDeps();
   const overLimitQuery = query(
     collection(db, DISPLAY_SETUPS_COLLECTION),
     orderBy("createdAtMs", "desc"),
@@ -339,6 +426,7 @@ async function saveCurrentSetup() {
 
   const setup = readSetupFromInputs();
   try {
+    const { addDoc, collection, db, serverTimestamp } = await getFirebaseDeps();
     await addDoc(collection(db, DISPLAY_SETUPS_COLLECTION), {
       name: setupName,
       ...setup,
@@ -372,16 +460,15 @@ function loadSelectedSetup() {
   const settings = getSettingsFromInputs();
   applyDisplaySettings(settings);
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  refreshEmptyLogoToggle(settings);
   setupStatusEl.textContent = `Loaded setup "${setup.name}" and applied it.`;
-}
-
-function scanSummaryRef() {
-  return doc(db, SCAN_SUMMARY_COLLECTION, SCAN_SUMMARY_DOC);
 }
 
 async function loadScanCount() {
   try {
-    const snapshot = await getDoc(scanSummaryRef());
+    const { db, doc, getDoc } = await getFirebaseDeps();
+    const summaryRef = doc(db, SCAN_SUMMARY_COLLECTION, SCAN_SUMMARY_DOC);
+    const snapshot = await getDoc(summaryRef);
     if (!snapshot.exists()) {
       scanCountValueEl.textContent = "0";
       scanStatusEl.textContent = "Counter document not found. It will be created when first scan/reset happens.";
@@ -400,8 +487,9 @@ async function loadScanCount() {
 
 async function resetScanCount() {
   try {
+    const { db, doc, serverTimestamp, setDoc } = await getFirebaseDeps();
     await setDoc(
-      scanSummaryRef(),
+      doc(db, SCAN_SUMMARY_COLLECTION, SCAN_SUMMARY_DOC),
       {
         totalScans: 0,
         lastScanAt: serverTimestamp(),
@@ -414,6 +502,26 @@ async function resetScanCount() {
     console.error("Failed to reset scan counter", err);
     scanStatusEl.textContent = "Failed to reset scan counter. Check Firestore rules/config.";
   }
+}
+
+async function syncItemsToFirebase(items) {
+  const { db, doc, serverTimestamp, setDoc } = await getFirebaseDeps();
+  await Promise.all(
+    items.map((item) =>
+      setDoc(
+        doc(db, DONATION_ITEMS_COLLECTION, item.shortId),
+        {
+          shortId: item.shortId,
+          heading: item.heading,
+          description: item.description,
+          quantity: item.quantity,
+          value: item.value,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      )
+    )
+  );
 }
 
 fileInput.addEventListener("change", async (event) => {
@@ -443,14 +551,22 @@ fileInput.addEventListener("change", async (event) => {
   }
 });
 
-saveButton.addEventListener("click", () => {
+saveButton.addEventListener("click", async () => {
   if (!pendingItems.length) {
     statusEl.textContent = "Load a file before saving.";
     return;
   }
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingItems));
-  statusEl.textContent = "Saved! Open the view page to see updates.";
+  const normalizedItems = normalizeItems(pendingItems);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedItems));
+
+  try {
+    await syncItemsToFirebase(normalizedItems);
+    statusEl.textContent = "Saved and synced. Display and QR redirect lookup are updated.";
+  } catch (err) {
+    console.error("Failed to sync items to Firebase", err);
+    statusEl.textContent = "Saved locally, but Firebase item lookup sync failed.";
+  }
 });
 
 clearButton.addEventListener("click", () => {
@@ -472,6 +588,7 @@ resetSettingsButton.addEventListener("click", () => {
   localStorage.removeItem(SETTINGS_KEY);
   fillSettingsInputs(DEFAULT_DISPLAY_SETTINGS);
   applyDisplaySettings(DEFAULT_DISPLAY_SETTINGS);
+  refreshEmptyLogoToggle(DEFAULT_DISPLAY_SETTINGS);
   statusEl.textContent = "Display settings reset to defaults.";
 });
 
@@ -535,6 +652,10 @@ clearAllLogosButton.addEventListener("click", () => {
   logoStatusEl.textContent = "Cleared all logo slots.";
 });
 
+toggleEmptyLogosButton.addEventListener("click", () => {
+  toggleEmptyLogoPlaceholders();
+});
+
 saveSetupButton.addEventListener("click", () => {
   saveCurrentSetup();
 });
@@ -558,6 +679,7 @@ resetScanButton.addEventListener("click", () => {
 const savedSettings = loadDisplaySettings();
 fillSettingsInputs(savedSettings);
 applyDisplaySettings(savedSettings);
+refreshEmptyLogoToggle(savedSettings);
 refreshLogoStatus();
 loadScanCount();
 loadSavedSetups();
